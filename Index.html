@@ -1,0 +1,782 @@
+package com.example.jarvis
+
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.os.Bundle
+import android.provider.Settings
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
+import android.widget.Button
+import android.widget.TextView
+import androidx.core.app.ActivityCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class AppInfo(
+    val name: String,
+    val packageName: String
+)
+
+class MainActivity : Activity(), TextToSpeech.OnInitListener {
+
+    private lateinit var statusText: TextView
+    private lateinit var responseText: TextView
+    private lateinit var talkButton: Button
+
+    private lateinit var speechRecognizer: SpeechRecognizer
+    private lateinit var speechIntent: Intent
+    private lateinit var tts: TextToSpeech
+    private lateinit var audioManager: AudioManager
+
+    private val apps = mutableListOf<AppInfo>()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContentView(R.layout.activity_main)
+
+        statusText = findViewById(R.id.status)
+        responseText = findViewById(R.id.response)
+        talkButton = findViewById(R.id.talkButton)
+
+        audioManager =
+            getSystemService(AUDIO_SERVICE) as AudioManager
+
+        tts = TextToSpeech(this, this)
+
+        requestMicrophonePermission()
+
+        loadLaunchableApps()
+
+        setupSpeechRecognition()
+
+        talkButton.setOnClickListener {
+            startListening()
+        }
+    }
+
+    // -----------------------------------------
+    // MICROPHONE PERMISSION
+    // -----------------------------------------
+
+    private fun requestMicrophonePermission() {
+
+        if (
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                100
+            )
+        }
+    }
+
+    // -----------------------------------------
+    // SCAN LAUNCHABLE APPS
+    // -----------------------------------------
+
+    private fun loadLaunchableApps() {
+
+        apps.clear()
+
+        val intent = Intent(
+            Intent.ACTION_MAIN,
+            null
+        )
+
+        intent.addCategory(
+            Intent.CATEGORY_LAUNCHER
+        )
+
+        val activities =
+            packageManager.queryIntentActivities(
+                intent,
+                PackageManager.MATCH_ALL
+            )
+
+        for (info in activities) {
+
+            val label =
+                info.loadLabel(packageManager)
+                    .toString()
+
+            val packageName =
+                info.activityInfo.packageName
+
+            if (
+                label.isNotBlank() &&
+                packageName != packageNameFromThisApp()
+            ) {
+
+                apps.add(
+                    AppInfo(
+                        label,
+                        packageName
+                    )
+                )
+            }
+        }
+
+        apps.sortBy {
+            it.name.lowercase()
+        }
+    }
+
+    private fun packageNameFromThisApp(): String {
+        return packageName
+    }
+
+    // -----------------------------------------
+    // SPEECH RECOGNITION
+    // -----------------------------------------
+
+    private fun setupSpeechRecognition() {
+
+        speechRecognizer =
+            SpeechRecognizer.createSpeechRecognizer(this)
+
+        speechIntent =
+            Intent(
+                RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+            )
+
+        speechIntent.putExtra(
+            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+        )
+
+        speechIntent.putExtra(
+            RecognizerIntent.EXTRA_LANGUAGE,
+            "en-IN"
+        )
+
+        speechIntent.putExtra(
+            RecognizerIntent.EXTRA_MAX_RESULTS,
+            5
+        )
+
+        speechRecognizer.setRecognitionListener(
+            object : RecognitionListener {
+
+                override fun onReadyForSpeech(
+                    params: Bundle?
+                ) {
+                    statusText.text = "LISTENING..."
+                }
+
+                override fun onBeginningOfSpeech() {
+                    statusText.text = "HEARING..."
+                }
+
+                override fun onRmsChanged(
+                    rmsdB: Float
+                ) {}
+
+                override fun onBufferReceived(
+                    buffer: ByteArray?
+                ) {}
+
+                override fun onEndOfSpeech() {
+                    statusText.text = "PROCESSING..."
+                }
+
+                override fun onError(
+                    error: Int
+                ) {
+
+                    statusText.text =
+                        "SYSTEM ONLINE"
+
+                    speak(
+                        "I couldn't understand that. Please try again."
+                    )
+                }
+
+                override fun onResults(
+                    results: Bundle?
+                ) {
+
+                    val matches =
+                        results?.getStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION
+                        )
+
+                    val command =
+                        matches
+                            ?.firstOrNull()
+                            ?.lowercase(
+                                Locale.getDefault()
+                            )
+
+                    statusText.text =
+                        "SYSTEM ONLINE"
+
+                    if (command != null) {
+
+                        responseText.text =
+                            "You: $command"
+
+                        processCommand(command)
+                    }
+                }
+
+                override fun onPartialResults(
+                    partialResults: Bundle?
+                ) {}
+
+                override fun onEvent(
+                    eventType: Int,
+                    params: Bundle?
+                ) {}
+            }
+        )
+    }
+
+    private fun startListening() {
+
+        if (
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+
+            requestMicrophonePermission()
+            return
+        }
+
+        speechRecognizer.startListening(
+            speechIntent
+        )
+    }
+
+    // -----------------------------------------
+    // COMMAND PROCESSOR
+    // -----------------------------------------
+
+    private fun processCommand(
+        command: String
+    ) {
+
+        when {
+
+            command.contains("hello") ||
+            command.contains("hi jarvis") ||
+            command.contains("hey jarvis") -> {
+
+                speak(
+                    "Hello. How can I help you?"
+                )
+            }
+
+            command.contains("what time") ||
+            command == "time" ||
+            command.contains("current time") -> {
+
+                val time =
+                    SimpleDateFormat(
+                        "hh:mm a",
+                        Locale.getDefault()
+                    ).format(Date())
+
+                speak(
+                    "The current time is $time"
+                )
+            }
+
+            command.contains("today's date") ||
+            command.contains("todays date") ||
+            command == "date" -> {
+
+                val date =
+                    SimpleDateFormat(
+                        "dd MMMM yyyy",
+                        Locale.getDefault()
+                    ).format(Date())
+
+                speak(
+                    "Today's date is $date"
+                )
+            }
+
+            command.contains("volume up") ||
+            command.contains("increase volume") -> {
+
+                audioManager.adjustVolume(
+                    AudioManager.ADJUST_RAISE,
+                    AudioManager.FLAG_SHOW_UI
+                )
+
+                speak(
+                    "Volume increased."
+                )
+            }
+
+            command.contains("volume down") ||
+            command.contains("decrease volume") -> {
+
+                audioManager.adjustVolume(
+                    AudioManager.ADJUST_LOWER,
+                    AudioManager.FLAG_SHOW_UI
+                )
+
+                speak(
+                    "Volume decreased."
+                )
+            }
+
+            command.contains("mute") -> {
+
+                audioManager.adjustVolume(
+                    AudioManager.ADJUST_MUTE,
+                    AudioManager.FLAG_SHOW_UI
+                )
+
+                speak("Muted.")
+            }
+
+            command.contains("settings") -> {
+
+                speak(
+                    "Opening settings."
+                )
+
+                startActivity(
+                    Intent(
+                        Settings.ACTION_SETTINGS
+                    )
+                )
+            }
+
+            command.contains("open youtube") -> {
+
+                speak(
+                    "Opening YouTube."
+                )
+
+                openWebsite(
+                    "https://www.youtube.com"
+                )
+            }
+
+            command.contains("open google") -> {
+
+                speak(
+                    "Opening Google."
+                )
+
+                openWebsite(
+                    "https://www.google.com"
+                )
+            }
+
+            command.contains("open instagram") -> {
+
+                openSpecificApp(
+                    "Instagram",
+                    listOf(
+                        "com.instagram.android"
+                    )
+                )
+            }
+
+            command.contains("open whatsapp") -> {
+
+                openSpecificApp(
+                    "WhatsApp",
+                    listOf(
+                        "com.whatsapp",
+                        "com.whatsapp.w4b"
+                    )
+                )
+            }
+
+            command.contains("open free fire") -> {
+
+                openSpecificApp(
+                    "Free Fire",
+                    listOf(
+                        "com.dts.freefireth",
+                        "com.dts.freefiremax"
+                    )
+                )
+            }
+
+            command.startsWith("open ") -> {
+
+                val appName =
+                    command
+                        .removePrefix("open ")
+                        .trim()
+
+                openAppByVoiceName(
+                    appName
+                )
+            }
+
+            command.contains("list apps") ||
+            command.contains("show apps") -> {
+
+                speak(
+                    "I can see ${apps.size} launchable apps on your phone."
+                )
+            }
+
+            command.contains("who are you") ||
+            command.contains("what are you") -> {
+
+                speak(
+                    "I am JARVIS, your personal Android assistant."
+                )
+            }
+
+            else -> {
+
+                speak(
+                    "I heard you say $command. " +
+                    "I don't know that command yet."
+                )
+            }
+        }
+    }
+
+    // -----------------------------------------
+    // OPEN ANY LAUNCHABLE APP
+    // -----------------------------------------
+
+    private fun openAppByVoiceName(
+        requestedName: String
+    ) {
+
+        val cleanName =
+            requestedName
+                .replace(
+                    "application",
+                    ""
+                )
+                .replace(
+                    "app",
+                    ""
+                )
+                .trim()
+
+        val exact =
+            apps.firstOrNull {
+                it.name.equals(
+                    cleanName,
+                    ignoreCase = true
+                )
+            }
+
+        val partial =
+            apps.firstOrNull {
+                it.name.contains(
+                    cleanName,
+                    ignoreCase = true
+                )
+            }
+
+        val match =
+            exact ?: partial
+
+        if (match != null) {
+
+            speak(
+                "Opening ${match.name}."
+            )
+
+            launchPackage(
+                match.packageName
+            )
+
+        } else {
+
+            speak(
+                "I couldn't find an app called $cleanName."
+            )
+        }
+    }
+
+    // -----------------------------------------
+    // OPEN SPECIFIC APP
+    // -----------------------------------------
+
+    private fun openSpecificApp(
+        appName: String,
+        packageNames: List<String>
+    ) {
+
+        for (pkg in packageNames) {
+
+            val launchIntent =
+                packageManager.getLaunchIntentForPackage(
+                    pkg
+                )
+
+            if (launchIntent != null) {
+
+                speak(
+                    "Opening $appName."
+                )
+
+                startActivity(
+                    launchIntent
+                )
+
+                return
+            }
+        }
+
+        // Fallback to scanned app list
+
+        openAppByVoiceName(
+            appName.lowercase()
+        )
+    }
+
+    private fun launchPackage(
+        packageName: String
+    ) {
+
+        val intent =
+            packageManager.getLaunchIntentForPackage(
+                packageName
+            )
+
+        if (intent != null) {
+
+            startActivity(intent)
+
+        } else {
+
+            speak(
+                "I cannot launch that application."
+            )
+        }
+    }
+
+    // -----------------------------------------
+    // WEB
+    // -----------------------------------------
+
+    private fun openWebsite(
+        url: String
+    ) {
+
+        val intent =
+            Intent(
+                Intent.ACTION_VIEW,
+                android.net.Uri.parse(url)
+            )
+
+        startActivity(intent)
+    }
+
+    // -----------------------------------------
+    // TEXT TO SPEECH
+    // -----------------------------------------
+
+    private fun speak(
+        text: String
+    ) {
+
+        responseText.text = text
+
+        if (::tts.isInitialized) {
+
+            tts.speak(
+                text,
+                TextToSpeech.QUEUE_FLUSH,
+                null,
+                "JARVIS_RESPONSE"
+            )
+        }
+    }
+
+    override fun onInit(
+        status: Int
+    ) {
+
+        if (
+            status ==
+            TextToSpeech.SUCCESS
+        ) {
+
+            tts.language =
+                Locale.US
+
+            speak(
+                "Jarvis initialized. System online."
+            )
+        }
+    }
+
+    // -----------------------------------------
+    // CLEANUP
+    // -----------------------------------------
+
+    override fun onDestroy() {
+
+        if (::speechRecognizer.isInitialized) {
+            speechRecognizer.destroy()
+        }
+
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
+
+        super.onDestroy()
+    }
+}<?xml version="1.0" encoding="utf-8"?>
+
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission
+        android:name="android.permission.RECORD_AUDIO" />
+
+    <queries>
+
+        <!-- Speech recognition -->
+        <intent>
+            <action
+                android:name="android.speech.RecognitionService" />
+        </intent>
+
+        <!-- Launchable applications -->
+        <intent>
+            <action
+                android:name="android.intent.action.MAIN" />
+
+            <category
+                android:name="android.intent.category.LAUNCHER" />
+        </intent>
+
+    </queries>
+
+    <application
+        android:theme="@style/Theme.Jarvis"
+        android:label="JARVIS"
+        android:allowBackup="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+
+            <intent-filter>
+
+                <action
+                    android:name="android.intent.action.MAIN" />
+
+                <category
+                    android:name="android.intent.category.LAUNCHER" />
+
+            </intent-filter>
+
+        </activity>
+
+    </application>
+
+                </manifest>
+                  <?xml version="1.0" encoding="utf-8"?>
+
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+
+    android:orientation="vertical"
+    android:gravity="center"
+
+    android:padding="24dp"
+
+    android:background="#050912">
+
+    <TextView
+        android:id="@+id/title"
+
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+
+        android:text="J A R V I S"
+
+        android:textSize="38sp"
+        android:textStyle="bold"
+
+        android:textColor="#00D9FF"
+
+        android:letterSpacing="0.15" />
+
+    <TextView
+        android:id="@+id/status"
+
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+
+        android:layout_marginTop="8dp"
+
+        android:text="SYSTEM ONLINE"
+
+        android:textSize="15sp"
+
+        android:textColor="#8B9AAA" />
+
+    <TextView
+        android:id="@+id/core"
+
+        android:layout_width="190dp"
+        android:layout_height="190dp"
+
+        android:layout_marginTop="35dp"
+
+        android:gravity="center"
+
+        android:text="◉"
+
+        android:textSize="75sp"
+
+        android:textColor="#00D9FF" />
+
+    <TextView
+        android:id="@+id/response"
+
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+
+        android:layout_marginTop="25dp"
+
+        android:gravity="center"
+
+        android:text="Hello. I am JARVIS."
+
+        android:textSize="17sp"
+
+        android:textColor="#FFFFFF" />
+
+    <Button
+        android:id="@+id/talkButton"
+
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+
+        android:layout_marginTop="15dp"
+
+        android:text="🎙 TALK TO JARVIS" />
+
+    </LinearLayout>
+
+
+
